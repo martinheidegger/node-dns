@@ -1,7 +1,8 @@
 const assert = require('assert');
 const test = require('./test');
-const { Packet, createDOHServer } = require('..');
+const { Packet, createUDPServer, createDOHServer } = require('..');
 const http = require('http');
+const dns = require('dns');
 
 /* TODO: below is unused, either delete or use
 const request = Buffer.from([
@@ -300,6 +301,34 @@ test('server/doh#cors - cors function', async function() {
   assert.equal(headers['access-control-allow-origin'], 'false');
   assert.equal(headers.vary, 'Origin');
   server.server.close();
+});
+
+test('integration/node-js', async function() {
+  const server = createUDPServer((message, res) => {
+    assert.deepEqual(message.questions, [ {
+      name  : 'google.com',
+      type  : 16,
+      class : 1,
+    } ]);
+    const response = Packet.createResponseFromRequest(message);
+    response.answers.push({
+      name  : 'google.com',
+      type  : 16,
+      class : 1,
+      ttl   : 300,
+      data  : [ 'hello=bar' ],
+    });
+    res(response);
+  });
+  const { port } = await new Promise(resolve => {
+    server.on('listening', () => resolve(server.address()));
+    server.listen();
+  });
+
+  const resolver = new dns.promises.Resolver();
+  resolver.setServers([ `127.0.0.1:${port}` ]);
+  assert.deepEqual(await resolver.resolveTxt('google.com'), [ [ 'hello=bar' ] ]);
+  server.close();
 });
 
 function get(url, options) {
